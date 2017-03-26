@@ -211,7 +211,7 @@
         var newId = args[2];
         receiveGet(reqId, args, function (callRes) {
           var id = null, err;
-          callRes = callRes[2]
+          callRes = callRes[2];
           if (callRes.indexOf(ObjPrefix) !== -1) {
             id = callRes.substring(ObjPrefix.length);
             receiveSave(reqId, [getLink(id), newId], cb);
@@ -230,9 +230,33 @@
         return links[id] !== null;
       };
 
-      this.initialized = new Promise(function (resolve) {
-        initialize = resolve;
+      // this.initialized = new Promise(function (resolve) {
+      //   initialize = resolve;
+      // });
+
+      var initializationCallbacks = [];
+      var initialized = false;
+
+      function notifyInitialized() {
+          initialized = true;
+          for (var i = 0; i < initializationCallbacks.length; i++)
+              initializationCallbacks[i](self);
+          initializationCallbacks = null;
+      }
+
+      this.onInitialize = function(cb) {
+          if (initialized) {
+              cb(self);
+              return;
+          }
+          initializationCallbacks.push(cb);
+      };
+
+      this.onInitialize(function(resolve, reject) {
+          initialize = resolve;
+          notifyInitialized();
       });
+
 
       this.receive = function (data) {
         if (protocolDebugEnabled) console.log('->', data);
@@ -336,7 +360,32 @@
        * Run Scala.js compiled application in the
        * same thread as DOM runs
        */
-      basic: function (mainClass, scriptUrl) {
+      
+      basic: function (mainClass, scriptUrl, cb) {
+        var tag = document.createElement('script');
+        tag.setAttribute('src', scriptUrl);
+
+        tag.addEventListener('load', function () {
+          var scope = {},
+            jsAccess = new bridge.NativeJSAccess(scope),
+            bridgeObj = new Bridge(function (data) {
+              scope.onmessage({data : data});
+            });
+
+          scope.postMessage = function (data) {
+            bridgeObj.receive(data);
+          };
+
+          eval(mainClass)().main(jsAccess);
+          cb(bridgeObj);
+        });
+
+        document.addEventListener('DOMContentLoaded', function() {
+          document.head.appendChild(tag);
+        });
+      },
+      
+      basic_: function (mainClass, scriptUrl) {
         return new Promise(function (resolve, reject) {
           var tag = document.createElement('script');
           tag.setAttribute('src', scriptUrl);
@@ -366,7 +415,7 @@
        * Run Scala.js compiled application in the
        * same thread as DOM runs
        */
-      worker: function (mainClass, scriptUrl, dependencies) {
+      worker: function (mainClass, scriptUrl, dependencies, cb) {
         var toAbsoluteUrl = function (url) {
           var parser = document.createElement('a');
           parser.href = url;
@@ -378,8 +427,6 @@
 
         var scripts = dependencies.map(toAbsoluteUrl);
         scripts.push(toAbsoluteUrl(scriptUrl));
-
-        return new Promise(function (resolve, reject) {
           var injectedJS = ('if (typeof console === "undefined") {\n' +
           'var noop = function() {};\n' +
           'console = { log: noop, error: noop }\n' +
@@ -409,32 +456,30 @@
           });
 
           bridge.initialized.then(function () {
-            resolve(bridge);
+            cb(bridge);
           });
-        });
       },
 
       /**
        * Connect to remote server via WebSocket
        */
-      webSocket: function (urlOrWs) {
-        return new Promise(function (resolve, reject) {
-          var ws = null;
-          if (typeof urlOrWs === 'object') ws = urlOrWs;
-          else ws = new WebSocket(urlOrWs);
-          var bridge = new Bridge(function (data) {
-            if (protocolDebugEnabled) {
-              console.log('<-', data);
-            }
-            ws.send(JSON.stringify(data));
-          });
-          ws.addEventListener('message', function (event) {
-            bridge.receive(JSON.parse(event.data));
-          });
-          ws.addEventListener('error', reject);
-          bridge.initialized.then(function () {
-            resolve(bridge);
-          });
+      webSocket: function (urlOrWs, cb) {
+        var ws = null;
+        if (typeof urlOrWs === 'object') ws = urlOrWs;
+        else ws = new WebSocket(urlOrWs);
+        var bridge = new Bridge(function (data) {
+          if (protocolDebugEnabled) {
+            console.log('<-', data);
+          }
+          ws.send(JSON.stringify(data));
+        });
+        ws.addEventListener('message', function (event) {
+          bridge.receive(JSON.parse(event.data));
+        });
+        // ws.addEventListener('error', reject);
+        // Don`t know what to change in reject case.
+        bridge.initialized.then(function () {
+          cb(bridge);
         });
       },
 
