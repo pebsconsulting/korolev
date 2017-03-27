@@ -235,9 +235,9 @@
       // });
 
       var initializationCallbacks = [];
-      var initialized = false;
+      this.initialized = false;
 
-      function notifyInitialized() {
+      function notifyInitialized(initialized) {
           initialized = true;
           for (var i = 0; i < initializationCallbacks.length; i++)
               initializationCallbacks[i](self);
@@ -245,7 +245,7 @@
       }
 
       this.onInitialize = function(cb) {
-          if (initialized) {
+          if (this.initialized) {
               cb(self);
               return;
           }
@@ -254,7 +254,7 @@
 
       this.onInitialize(function(resolve, reject) {
           initialize = resolve;
-          notifyInitialized();
+          notifyInitialized(this.initialized);
       });
 
 
@@ -384,32 +384,6 @@
           document.head.appendChild(tag);
         });
       },
-      
-      basic_: function (mainClass, scriptUrl) {
-        return new Promise(function (resolve, reject) {
-          var tag = document.createElement('script');
-          tag.setAttribute('src', scriptUrl);
-
-          tag.addEventListener('load', function () {
-            var scope = {},
-                jsAccess = new bridge.NativeJSAccess(scope),
-                bridgeObj = new Bridge(function (data) {
-                  scope.onmessage({data : data});
-                });
-
-            scope.postMessage = function (data) {
-              bridgeObj.receive(data);
-            };
-
-            eval(mainClass)().main(jsAccess);
-            resolve(bridgeObj);
-          });
-
-          document.addEventListener('DOMContentLoaded', function() {
-            document.head.appendChild(tag);
-          });
-        });
-      },
 
       /**
        * Run Scala.js compiled application in the
@@ -455,9 +429,7 @@
             bridge.receive(event.data);
           });
 
-          bridge.initialized.then(function () {
-            cb(bridge);
-          });
+          if (bridge.initialized) cb(bridge);
       },
 
       /**
@@ -478,9 +450,9 @@
         });
         // ws.addEventListener('error', reject);
         // Don`t know what to change in reject case.
-        bridge.initialized.then(function () {
-          cb(bridge);
-        });
+        // if (bridge.initialized)
+        console.log(bridge.initialized);
+        if (bridge.initialized) cb(bridge);
       },
 
       create: function (postMessage, testEnv) {
